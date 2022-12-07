@@ -6,7 +6,10 @@
 #include <unistd.h>
 #include <stdlib.h>
 # include <time.h>
-#define BUFFSIZE 1048576           // define file size in bytes (binary)
+#define BUFFSIZE 1048576 // define file size in bytes (binary)
+
+// The random data file was constructed using a linux command following the link:
+// https://www.computernetworkingnotes.com/linux-tutorials/generate-or-create-a-large-text-file-in-linux.html
 
 /*
  * C program to implement Checksum
@@ -49,7 +52,9 @@ char* OpenAndReadFile (char* buf)
     }
     return buf;
 }
+
 //function measure time and return value in nanoSec
+// The function was adapted from: https://www.educba.com/clock_gettime/
 long ReturnTimeNs(char* argv)
 {
     struct timespec currTime;
