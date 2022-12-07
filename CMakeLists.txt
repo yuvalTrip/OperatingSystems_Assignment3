@@ -3,4 +3,4 @@ project(Assignment3 C)
 
 set(CMAKE_C_STANDARD 17)
 
-add_executable(Assignment3 main.c)
+add_executable(Assignment3 main.c )
