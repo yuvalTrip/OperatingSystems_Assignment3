@@ -19,25 +19,20 @@
 int sender(char *recievedData, int numOfChar)
 {
     int checksum,sum=0,i;
-    printf("\n****SENDER SIDE****\n");
     for(i=0; i < numOfChar; i++)
         sum+=recievedData[i];
     printf("SUM IS: %d",sum);
     checksum=~sum;    //1's complement of sum
-    printf("\nCHECKSUM IS:%d",checksum);
     return checksum;
 }
 
 int receiver( char* recievedData,int numOfChar,int SenderChecksum)
 {
     int checksum,sum=0,i;
-    printf("\n\n****RECEIVER SIDE****\n");
     for(i=0;i<numOfChar;i++)
         sum+=recievedData[i];
-    printf("SUM IS:%d",sum);
     sum=sum+SenderChecksum;
     checksum=~sum;    //1's complement of sum
-    printf("\nCHECKSUM IS:%d",checksum);
     return checksum;
 }
 
@@ -55,7 +50,7 @@ char* OpenAndReadFile (char* buf)
 
 //function measure time and return value in nanoSec
 // The function was adapted from: https://www.educba.com/clock_gettime/
-long ReturnTimeNs(char* argv)
+long ReturnTimeNs()
 {
     struct timespec currTime;
 
@@ -67,20 +62,20 @@ long ReturnTimeNs(char* argv)
     return currTime.tv_nsec;
 }
 
-void main()
-{
-    //int n,sch,rch;
-//    printf("\nENTER SIZE OF THE STRING:");
-//    scanf("%d",&n);
-//    int arr[n];
-//    printf("ENTER THE ELEMENTS OF THE ARRAY TO CALCULATE CHECKSUM:\n");
-//    for(int i=0;i<n;i++)
-//    {
-//        scanf("%d",&arr[i]);
-//    }
-    char *buf = malloc(BUFFSIZE * sizeof(char));// We will allocate memory to the full paths of both files
-    buf=OpenAndReadFile(buf);
-    printf("hi");
-//    sch=sender(arr,n);
-//    receiver(arr,n,sch);
-}
+//void main()
+//{
+//    //int n,sch,rch;
+////    printf("\nENTER SIZE OF THE STRING:");
+////    scanf("%d",&n);
+////    int arr[n];
+////    printf("ENTER THE ELEMENTS OF THE ARRAY TO CALCULATE CHECKSUM:\n");
+////    for(int i=0;i<n;i++)
+////    {
+////        scanf("%d",&arr[i]);
+////    }
+//    char *buf = malloc(BUFFSIZE * sizeof(char));// We will allocate memory to the full paths of both files
+//    buf=OpenAndReadFile(buf);
+//    printf("hi");
+////    sch=sender(arr,n);
+////    receiver(arr,n,sch);
+//}
