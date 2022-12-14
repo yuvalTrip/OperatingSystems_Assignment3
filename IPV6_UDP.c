@@ -9,9 +9,11 @@
 #include <time.h>
 
 #define SIZE_IN_BYTES 104857600
-
 long Etime;
 long Stime;
+int sockfd;
+char buffer[SIZE_IN_BYTES];
+struct sockaddr_in	 servaddr;
 
 // The function was adapted from: https://www.educba.com/clock_gettime/
 long ReturnTimeNs() {
@@ -41,7 +43,12 @@ void send_file(FILE * fp, int sockfd){
         size_t bytes_read = fread(buffer, 1, 1024, fp);
 
         // Send the chunk of data to the server
-        send(sockfd, buffer, bytes_read, 0);
+        sendto(sockfd, buffer, bytes_read, 0);
+
+        sendto(sockfd, buffer, bytes_read,
+               MSG_CONFIRM, (const struct sockaddr *) &servaddr,
+               sizeof(servaddr));
+
     }
     // Close the file
     fclose(fp);
@@ -50,40 +57,31 @@ void send_file(FILE * fp, int sockfd){
 //client
 int process1(char * portNum, char * ipAddr, FILE * fp)
 {
-    printf("hiiiii\n");
-
     int port = atoi(portNum);//convert the string of port from user to int
-    int socket_desc;
-    struct sockaddr_in server_addr;
 
-    // Create socket:
-    socket_desc = socket(AF_INET, SOCK_STREAM, 0);
-
-    if(socket_desc < 0){
-        printf("Unable to create socket\n");
-        return -1;
+    // Creating socket file descriptor
+    if ( (sockfd = socket(AF_INET6, SOCK_DGRAM, 0)) < 0 ) {
+        perror("socket creation failed");
+        exit(EXIT_FAILURE);
     }
 
-    printf("Socket created successfully\n");
-    // Set port and IP the same as server-side:
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(port);
-    server_addr.sin_addr.s_addr = inet_addr(ipAddr);
+    memset(&servaddr, 0, sizeof(servaddr));
 
-    // Send connection request to server:
-    if(connect(socket_desc, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0){
-        printf("Unable to connect\n");
-        return -1;
-    }
-    printf("Connected with server successfully\n");
+    // Filling server information
+    servaddr.sin_family = AF_INET6;
+    servaddr.sin_port = htons(port);
+    servaddr.sin_addr.s_addr = inet_addr(ipAddr);
 
-
+    int n, len;
     Stime = ReturnTimeNs();//getTime();
-    //we run in an infinite loop to always read from stdin(user)
-    send_file(fp, socket_desc);
+    sendto(sockfd, (const char *)fp, strlen(fp),
+           MSG_CONFIRM, (const struct sockaddr *) &servaddr,
+           sizeof(servaddr));
+    printf("file sent.\n");
+    close(sockfd);
     printf("\n");
+    return 0;
 
-    close(socket_desc);
 }
 
 //server
@@ -188,15 +186,14 @@ int main(int argc, char * argv[])
     {
         ch = process2(argv[1], fp);
     }
-//    printf("sahgdasg%s\n", EndTime);
     //check if the 2 checksums are the same and print according to the orders
     if(ch == 1)
     {
         //print time
-        printf("TCP/IPv4 Socket - Start: %ld\n", Stime);
-        printf("TCP/IPv4 Socket - End: %ld\n", Etime);
+        printf("UDP/IPv6 Socket - Start: %ld\n", Stime);
+        printf("UDP/IPv6 Socket - End: %ld\n", Etime);
     }
-    else//if checksum is not identical
+    else
     {
         printf("the checksums are not identical, \n -1");
     }
