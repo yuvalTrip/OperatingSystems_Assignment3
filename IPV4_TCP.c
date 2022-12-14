@@ -9,7 +9,8 @@
 #include <time.h>
 
 #define SIZE_IN_BYTES 104857600
-
+//#define port 2001
+//#define
 long Etime;
 long Stime;
 
