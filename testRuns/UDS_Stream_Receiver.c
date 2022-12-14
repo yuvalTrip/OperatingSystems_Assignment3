@@ -13,10 +13,10 @@
 #include <unistd.h>
 #include "../utils.c"
 
-#define SERVER_PATH "tpf_unix_sock.server"
-#define CLIENT_PATH "tpf_unix_sock.client"
+#define SERVER_PATH "/home/appeldaniel/CLionProjects/OperatingSystems_Assignment3/cmake-build-debug/tpf_unix_sock.server"
+#define CLIENT_PATH "/home/appeldaniel/CLionProjects/OperatingSystems_Assignment3/cmake-build-debug/tpf_unix_sock.client"
 
-int main(void) {
+void UDS_Stream_Receiver() {
 
     int client_sock, rc, len;
     struct sockaddr_un server_sockaddr;
@@ -83,18 +83,20 @@ int main(void) {
     int checksum;
     printf("Waiting to receive data...\n");
     memset(buf, 0, BUFFSIZE);
-    rc = recv(client_sock, buf, BUFFSIZE, 0);
-    if (rc == -1) {
-        printf("RECV ERROR =\n");
-        close(client_sock);
-        exit(1);
-        checksum = 0;
 
-    } else {
-        printf("DATA RECEIVED\n");
-        checksum = sender(data, BUFFSIZE);
+    for(int i = 0; i < BUFFSIZE/1024; i++) {
+        char* tempBuff = malloc(1024);
+        rc = recv(client_sock, tempBuff, 1024, 0);
+        if (rc == -1) {
+            printf("RECV ERROR =\n");
+            close(client_sock);
+            exit(1);
+        } else {
+            strcat(buf, tempBuff);
+            free(tempBuff);
+        }
     }
-
+    checksum = sender(data, BUFFSIZE);
     //Take time after receive
     long endTime = ReturnTimeNs();
 
@@ -110,6 +112,5 @@ int main(void) {
     /* Close the socket and exit. */
     /******************************/
     close(client_sock);
-
-    return 0;
+    free(buf);
 }

@@ -11,6 +11,8 @@
 #define SERVER_PATH "tpf_unix_sock.server"
 #define CLIENT_PATH "tpf_unix_sock.client"
 
+#define SERVER_PATH_DGRAM "tpf_unix_sock.server_Dgram"
+
 // The code for Stream UDS was adapted from https://www.ibm.com/docs/en/ztpf/1.1.0.15?topic=considerations-unix-domain-sockets
 void UDS_Stream_Sender();
 
@@ -26,7 +28,7 @@ int main() {
         // UDS Stream Sockets implementation
         if (fork() == 0) { // child process - sender
             UDS_Stream_Sender();
-        } else {
+        } else { // - Receiver
             UDS_Stream_Receiver();
             wait(NULL);
             printf("\n\n");
@@ -35,11 +37,11 @@ int main() {
     }
         // parent process because return value non-zero.
     else { //parent process
-        if (fork() == 0) { // child process
+        if (fork() == 0) { // child process - sender
             // UDS Dgram Sockets implementation
-            if (fork() == 0) { // child process - sender
+            if (fork() == 0) { // child process - receiver
                 UDS_Dgram_Receiver();
-            } else {
+            } else { // - sender
                 UDS_Dgram_Sender();
                 wait(NULL);
                 printf("\n\n");
@@ -105,7 +107,6 @@ void UDS_Stream_Sender() {
         close(server_sock);
         exit(1);
     }
-    printf("socket listening...\n");
 
     /*********************************/
     /* Accept an incoming connection */
@@ -143,25 +144,25 @@ void UDS_Stream_Sender() {
     //Take time before send
     long startTime = ReturnTimeNs();
     printf("Start time of UDS-Stream: %ld\n", startTime);
-    int checksum = sender(data, BUFFSIZE);
+//    int checksum = sender(data, BUFFSIZE);
 
-    printf("Sending data...\n");
-    rc = send(client_sock, data, BUFFSIZE, 0);
-    if (rc == -1) {
-        printf("SEND ERROR:");
-        close(server_sock);
-        close(client_sock);
-        exit(1);
-    } else {
-        printf("Data sent!\n");
+
+    for (int i = 0; i < BUFFSIZE/1024; i++) {
+        rc = send(client_sock, data, 1024, 0);
+        if (rc == -1) {
+            printf("SEND ERROR:");
+            close(server_sock);
+            close(client_sock);
+            exit(1);
+        } else {
+            data += 1024;
+        }
     }
 
 //    //Take time after send
 //    long endTime = ReturnTimeNs();
 //
 //    printf("The time of sending was: %ld\n", endTime-startTime);
-
-    free(data);
 
     /******************************/
     /* Close the sockets and exit */
@@ -215,8 +216,10 @@ void UDS_Stream_Receiver() {
     /***************************************/
     server_sockaddr.sun_family = AF_UNIX;
     strcpy(server_sockaddr.sun_path, SERVER_PATH);
-    while (connect(client_sock, (struct sockaddr *) &server_sockaddr, len) == -1)
+//    rc = connect(client_sock, (struct sockaddr *) &server_sockaddr, len);
+    while (connect(client_sock, (struct sockaddr *) &server_sockaddr, len) < 0) {
         continue;
+    }
 
 
     char *data = malloc(BUFFSIZE * sizeof(char));
@@ -233,18 +236,20 @@ void UDS_Stream_Receiver() {
     int checksum;
     printf("Waiting to receive data...\n");
     memset(buf, 0, BUFFSIZE);
-    rc = recv(client_sock, buf, BUFFSIZE, 0);
-    if (rc == -1) {
-        printf("RECV ERROR =\n");
-        close(client_sock);
-        exit(1);
-        checksum = 0;
 
-    } else {
-        printf("DATA RECEIVED\n");
-        checksum = sender(data, BUFFSIZE);
+    for(int i = 0; i < BUFFSIZE/1024; i++) {
+        char* tempBuff = malloc(1024);
+        rc = recv(client_sock, tempBuff, 1024, 0);
+        if (rc == -1) {
+            printf("RECV ERROR =\n");
+            close(client_sock);
+            exit(1);
+        } else {
+            strcat(buf, tempBuff);
+            free(tempBuff);
+        }
     }
-
+    checksum = sender(data, BUFFSIZE);
     //Take time after receive
     long endTime = ReturnTimeNs();
 
@@ -260,9 +265,10 @@ void UDS_Stream_Receiver() {
     /* Close the socket and exit. */
     /******************************/
     close(client_sock);
+    free(buf);
 }
 
-void UDS_Dgram_Sender() {
+void UDS_Dgram_Sender () {
     int client_socket, rc;
     struct sockaddr_un remote;
     char *buf = malloc(BUFFSIZE);
@@ -271,7 +277,7 @@ void UDS_Dgram_Sender() {
 
     //Take time before send
     long startTime = ReturnTimeNs();
-    printf("Start time of UDS-Dgram: %ld\n", startTime);
+    printf("Start time of UDS-Stream: %ld\n", startTime);
     int checksum = sender(data, BUFFSIZE);
 
     memset(&remote, 0, sizeof(struct sockaddr_un));
@@ -291,7 +297,7 @@ void UDS_Dgram_Sender() {
     /* giving it a filepath to send to.    */
     /***************************************/
     remote.sun_family = AF_UNIX;
-    strcpy(remote.sun_path, SERVER_PATH);
+    strcpy(remote.sun_path, SERVER_PATH_DGRAM);
 
     /***************************************/
     /* Copy the data to be sent to the     */
@@ -326,7 +332,7 @@ void UDS_Dgram_Receiver() {
     int server_sock, len, rc;
     int bytes_rec = 0;
     struct sockaddr_un server_sockaddr, peer_sock;
-    char *buf = malloc(BUFFSIZE);
+    char* buf = malloc (BUFFSIZE);
     memset(&server_sockaddr, 0, sizeof(struct sockaddr_un));
     memset(buf, 0, 256);
 
@@ -334,7 +340,7 @@ void UDS_Dgram_Receiver() {
     /* Create a UNIX domain datagram socket */
     /****************************************/
     server_sock = socket(AF_UNIX, SOCK_DGRAM, 0);
-    if (server_sock == -1) {
+    if (server_sock == -1){
         printf("SOCKET ERROR = %s\n", strerror(errno));
         exit(1);
     }
@@ -348,11 +354,11 @@ void UDS_Dgram_Receiver() {
     /* succeed, then bind to that file.    */
     /***************************************/
     server_sockaddr.sun_family = AF_UNIX;
-    strcpy(server_sockaddr.sun_path, SERVER_PATH);
+    strcpy(server_sockaddr.sun_path, SERVER_PATH_DGRAM);
     len = sizeof(server_sockaddr);
-    unlink(SERVER_PATH);
+    unlink(SERVER_PATH_DGRAM);
     rc = bind(server_sock, (struct sockaddr *) &server_sockaddr, len);
-    if (rc == -1) {
+    if (rc == -1){
         printf("BIND ERROR = %s\n", strerror(errno));
         close(server_sock);
         exit(1);
@@ -365,20 +371,19 @@ void UDS_Dgram_Receiver() {
     /* Read data on the server from clients */
     /* and print the data that was read.    */
     /****************************************/
-    char *data = malloc(BUFFSIZE);
+    char* data = malloc(BUFFSIZE);
     printf("waiting to recvfrom...\n");
-    for (int i = 0; i < BUFFSIZE / 1024; i++) {
+    for (int i = 0; i < BUFFSIZE/1024; i++) {
         bytes_rec = recvfrom(server_sock, buf, 1024, 0, (struct sockaddr *) &peer_sock, &len);
         if (bytes_rec == -1) {
             printf("RECVFROM ERROR = %s\n", strerror(errno));
             close(server_sock);
             exit(1);
         } else {
+//            printf("%s", buf);
             strcat(data, buf);
         }
     }
-    printf("%s", data);
-    printf("\n");
     int checksum = sender(data, BUFFSIZE);
     //Take time after receive
     long endTime = ReturnTimeNs();
@@ -388,8 +393,8 @@ void UDS_Dgram_Receiver() {
     if (checksumReceived != 0) {
         endTime = -1;
     }
-    printf("End time of UDS-Dgram: %ld\n", endTime);
-    printf("The Dgram checksum difference is: %d\n", checksumReceived);
+    printf("End time of UDS-Datagram: %ld\n", endTime);
+    printf("The checksum difference for UDS-Datagram is: %d\n", checksumReceived);
 
     /*****************************/
     /* Close the socket and exit */

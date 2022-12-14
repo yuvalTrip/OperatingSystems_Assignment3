@@ -13,9 +13,9 @@
 #include <unistd.h>
 #include "../utils.c"
 
-#define SOCK_PATH  "tpf_unix_sock.server"
+#define SOCK_PATH  "/home/appeldaniel/CLionProjects/OperatingSystems_Assignment3/cmake-build-debug/tpf_unix_sock.server"
 
-int main(void) {
+int main() {
 
     int server_sock, client_sock, len, rc;
     int bytes_rec = 0;
@@ -103,17 +103,19 @@ int main(void) {
     //Take time before send
     long startTime = ReturnTimeNs();
     printf("Start time of UDS-Stream: %ld\n", startTime);
-    int checksum = sender(data, BUFFSIZE);
+//    int checksum = sender(data, BUFFSIZE);
 
-    printf("Sending data...\n");
-    rc = send(client_sock, data, BUFFSIZE, 0);
-    if (rc == -1) {
-        printf("SEND ERROR:");
-        close(server_sock);
-        close(client_sock);
-        exit(1);
-    } else {
-        printf("Data sent!\n");
+
+    for (int i = 0; i < BUFFSIZE/1024; i++) {
+        rc = send(client_sock, data, 1024, 0);
+        if (rc == -1) {
+            printf("SEND ERROR:");
+            close(server_sock);
+            close(client_sock);
+            exit(1);
+        } else {
+            data += 1024;
+        }
     }
 
 //    //Take time after send
@@ -121,13 +123,9 @@ int main(void) {
 //
 //    printf("The time of sending was: %ld\n", endTime-startTime);
 
-    free(data);
-
     /******************************/
     /* Close the sockets and exit */
     /******************************/
     close(server_sock);
     close(client_sock);
-
-    return 0;
 }

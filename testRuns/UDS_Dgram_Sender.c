@@ -15,7 +15,7 @@
 
 #define SERVER_PATH "/home/appeldaniel/CLionProjects/OperatingSystems_Assignment3/testRuns/tpf_unix_sock.server"
 
-void UDS_Dgram_Sender () {
+int main () {
     int client_socket, rc;
     struct sockaddr_un remote;
     char *buf = malloc(BUFFSIZE);

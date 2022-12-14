@@ -7,7 +7,7 @@
 #include <stdlib.h>
 # include <time.h>
 
-#define BUFFSIZE 1048576 // define file size in bytes (binary)
+#define BUFFSIZE (1024*1024*100) // define file size in bytes (binary)
 
 // The random data file was constructed using a linux command following the link:
 // https://www.computernetworkingnotes.com/linux-tutorials/generate-or-create-a-large-text-file-in-linux.html

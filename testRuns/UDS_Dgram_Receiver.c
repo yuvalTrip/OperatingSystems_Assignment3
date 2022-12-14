@@ -15,7 +15,7 @@
 
 #define SOCK_PATH "/home/appeldaniel/CLionProjects/OperatingSystems_Assignment3/testRuns/tpf_unix_sock.server"
 
-void UDS_Dgram_Receiver(){
+int main(){
 
     int server_sock, len, rc;
     int bytes_rec = 0;
@@ -72,8 +72,6 @@ void UDS_Dgram_Receiver(){
             strcat(data, buf);
         }
     }
-    printf("%s", data);
-    printf("\n");
     int checksum = sender(data, BUFFSIZE);
     //Take time after receive
     long endTime = ReturnTimeNs();
