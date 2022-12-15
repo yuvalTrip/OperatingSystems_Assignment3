@@ -3,4 +3,4 @@ project(Assignment3 C)
 
 set(CMAKE_C_STANDARD 17)
 
-add_executable(Assignment3 IPV4_TCP.c IPV6_UDP.c)
+add_executable(Assignment3 testRuns/threadSharedMemory.c)

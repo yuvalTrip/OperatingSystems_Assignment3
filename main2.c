@@ -7,6 +7,7 @@
 #include <sys/wait.h>
 #include <errno.h>
 #include <sys/mman.h>
+#include <pthread.h>
 #include "utils.c"
 
 #define SERVER_PATH "tpf_unix_sock.server"
@@ -27,49 +28,54 @@ void mmapSenderAndReceiver();
 
 void pipeTransfer();
 
-int main() {
-    // child process because return value zero
-    if (fork() == 0) { // child process
-        // UDS Stream Sockets implementation
-        if (fork() == 0) { // child process - sender
-            UDS_Stream_Sender();
-        } else { // - Receiver
-            UDS_Stream_Receiver();
-            wait(NULL);
-            printf("\n\n");
-        }
+void* threadFunction(void* data);
 
-    }
-        // parent process because return value non-zero.
-    else { //parent process
-        if (fork() == 0) { // child process - sender
-            // UDS Dgram Sockets implementation
-            if (fork() == 0) { // child process - receiver
-                UDS_Dgram_Receiver();
-            } else { // - sender
-                UDS_Dgram_Sender();
-                wait(NULL);
-                printf("\n\n");
-            }
-        }
-        else {
+void threadSharingMainFunction();
+
+int main() {
+    if (fork() == 0) {
+        UDS_Stream_Sender();
+    } else {
+        if (fork() == 0) {
+            UDS_Stream_Receiver();
+        } else {
             if (fork() == 0) {
-                mmapSenderAndReceiver();
+                UDS_Dgram_Receiver();
             }
             else {
-                void pipeTransfer();
+                if (fork() == 0) {
+                    UDS_Dgram_Sender();
+                } else {
+                    if (fork() == 0) {
+                        mmapSenderAndReceiver();
+                    } else {
+                        if (fork() == 0) {
+                            pipeTransfer();
+                        }
+                        else {
+                            if (fork() == 0) {
+                                threadSharingMainFunction();
+                            }
+                            else {
+                                wait(NULL);
+                            }
+                            wait(NULL);
+                        }
+                        wait(NULL);
+                    }
+                    wait(NULL);
+                }
                 wait(NULL);
             }
-
             wait(NULL);
         }
         wait(NULL);
     }
-    return 0;
 }
 
-void UDS_Stream_Sender() {
 
+void UDS_Stream_Sender() {
+    // The code was adapted from: https://www.ibm.com/docs/en/ztpf/1.1.0.15?topic=considerations-unix-domain-sockets
     int server_sock, client_sock, len, rc;
     int bytes_rec = 0;
     struct sockaddr_un server_sockaddr;
@@ -140,10 +146,7 @@ void UDS_Stream_Sender() {
         close(server_sock);
         close(client_sock);
         exit(1);
-    } else {
-        printf("Client socket filepath: %s\n", client_sockaddr.sun_path);
     }
-
 
     /******************************************/
     /* Send data back to the connected socket */
@@ -158,7 +161,7 @@ void UDS_Stream_Sender() {
 //    int checksum = sender(data, BUFFSIZE);
 
 
-    for (int i = 0; i < BUFFSIZE/1024; i++) {
+    for (int i = 0; i < BUFFSIZE / 1024; i++) {
         rc = send(client_sock, data, 1024, 0);
         if (rc == -1) {
             printf("SEND ERROR:");
@@ -183,7 +186,7 @@ void UDS_Stream_Sender() {
 }
 
 void UDS_Stream_Receiver() {
-
+    // The code was adapted from: https://www.ibm.com/docs/en/ztpf/1.1.0.15?topic=considerations-unix-domain-sockets
     int client_sock, rc, len;
     struct sockaddr_un server_sockaddr;
     struct sockaddr_un client_sockaddr;
@@ -245,11 +248,10 @@ void UDS_Stream_Receiver() {
     /* and print it.                      */
     /**************************************/
     int checksum;
-    printf("Waiting to receive data...\n");
     memset(buf, 0, BUFFSIZE);
 
-    for(int i = 0; i < BUFFSIZE/1024; i++) {
-        char* tempBuff = malloc(1024);
+    for (int i = 0; i < BUFFSIZE / 1024; i++) {
+        char *tempBuff = malloc(1024);
         rc = recv(client_sock, tempBuff, 1024, 0);
         if (rc == -1) {
             printf("RECV ERROR =\n");
@@ -279,7 +281,8 @@ void UDS_Stream_Receiver() {
     free(buf);
 }
 
-void UDS_Dgram_Sender () {
+void UDS_Dgram_Sender() {
+    // The code was adapted from: https://www.ibm.com/docs/en/ztpf/1.1.0.15?topic=considerations-unix-domain-sockets
     int client_socket, rc;
     struct sockaddr_un remote;
     char *buf = malloc(BUFFSIZE);
@@ -315,7 +318,6 @@ void UDS_Dgram_Sender () {
     /* buffer and send it to the server.   */
     /***************************************/
     strcpy(buf, data);
-    printf("Sending data...\n");
     buf[BUFFSIZE] = '\0';
     char *startPointer = buf;
     for (int i = 0; i < BUFFSIZE / 1024; i++) {
@@ -339,11 +341,11 @@ void UDS_Dgram_Sender () {
 }
 
 void UDS_Dgram_Receiver() {
-
+    // The code was adapted from: https://www.ibm.com/docs/en/ztpf/1.1.0.15?topic=considerations-unix-domain-sockets
     int server_sock, len, rc;
     int bytes_rec = 0;
     struct sockaddr_un server_sockaddr, peer_sock;
-    char* buf = malloc (BUFFSIZE);
+    char *buf = malloc(BUFFSIZE);
     memset(&server_sockaddr, 0, sizeof(struct sockaddr_un));
     memset(buf, 0, 256);
 
@@ -351,7 +353,7 @@ void UDS_Dgram_Receiver() {
     /* Create a UNIX domain datagram socket */
     /****************************************/
     server_sock = socket(AF_UNIX, SOCK_DGRAM, 0);
-    if (server_sock == -1){
+    if (server_sock == -1) {
         printf("SOCKET ERROR = %s\n", strerror(errno));
         exit(1);
     }
@@ -369,7 +371,7 @@ void UDS_Dgram_Receiver() {
     len = sizeof(server_sockaddr);
     unlink(SERVER_PATH_DGRAM);
     rc = bind(server_sock, (struct sockaddr *) &server_sockaddr, len);
-    if (rc == -1){
+    if (rc == -1) {
         printf("BIND ERROR = %s\n", strerror(errno));
         close(server_sock);
         exit(1);
@@ -382,9 +384,8 @@ void UDS_Dgram_Receiver() {
     /* Read data on the server from clients */
     /* and print the data that was read.    */
     /****************************************/
-    char* data = malloc(BUFFSIZE);
-    printf("waiting to recvfrom...\n");
-    for (int i = 0; i < BUFFSIZE/1024; i++) {
+    char *data = malloc(BUFFSIZE);
+    for (int i = 0; i < BUFFSIZE / 1024; i++) {
         bytes_rec = recvfrom(server_sock, buf, 1024, 0, (struct sockaddr *) &peer_sock, &len);
         if (bytes_rec == -1) {
             printf("RECVFROM ERROR = %s\n", strerror(errno));
@@ -413,12 +414,13 @@ void UDS_Dgram_Receiver() {
     close(server_sock);
 }
 
-void mmapSenderAndReceiver(){
+void mmapSenderAndReceiver() {
+    // The code was adapted from https://www.youtube.com/watch?v=F3z-SIxu1Tw
     int fd = open("mmapTest.txt", O_RDWR);
     char *data = malloc(BUFFSIZE);
     data = OpenAndReadFile(data);
 
-    char* pmap = mmap(0, BUFFSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    char *pmap = mmap(0, BUFFSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (pmap == MAP_FAILED) {
         printf("Error");
     }
@@ -426,27 +428,26 @@ void mmapSenderAndReceiver(){
     printf("mmap before write time: %ld\n", ReturnTimeNs());
     strcpy(pmap, data); //copying data to new shared file
 
-    if(fork() == 0) {
-        char* receiveData = malloc(BUFFSIZE);
+    if (fork() == 0) {
+        char *receiveData = malloc(BUFFSIZE);
         strncpy(receiveData, pmap, BUFFSIZE);
         int senderChecksum = sender(data, BUFFSIZE);
         int checksumComparison = receiver(receiveData, BUFFSIZE, senderChecksum);
 
         if (checksumComparison != 0) {
             printf("end time of mmap is: -1\n");
-        }
-        else {
+        } else {
             printf("mmap after read time: %ld\n", ReturnTimeNs());
         }
         printf("Checksum difference for mmap is: %d\n", checksumComparison);
 
-    }
-    else {
+    } else {
         wait(NULL);
     }
 }
 
 void pipeTransfer() {
+    // The code was adapted from https://www.tutorialspoint.com/inter_process_communication/inter_process_communication_pipes.htm
     int pipefds[2];
     int returnStatus;
     int pid;
@@ -462,7 +463,7 @@ void pipeTransfer() {
     pid = fork();
     if (pid == 0) { // Child process
         char *readMsg = malloc(BUFFSIZE);
-        for (int i = 0; i < BUFFSIZE/1024; i++) {
+        for (int i = 0; i < BUFFSIZE / 1024; i++) {
             char *currMsg = malloc(1024);
             read(pipefds[0], currMsg, 1024);
             strcat(readMsg, currMsg);
@@ -473,17 +474,43 @@ void pipeTransfer() {
 
         if (checksumComparison != 0) {
             printf("end time of pipe transfer is: -1\n");
-        }
-        else {
+        } else {
             printf("pipe transfer after read time: %ld\n", ReturnTimeNs());
         }
         printf("Checksum difference for pipe transfer is: %d\n", checksumComparison);
 
     } else { //Parent process
-        for (int i = 0; i < BUFFSIZE/1024; i++) {
+        for (int i = 0; i < BUFFSIZE / 1024; i++) {
             write(pipefds[1], data, 1024);
             data += 1024;
         }
         wait(NULL);
+    }
+}
+
+void threadSharingMainFunction() {
+    // The code was adapted from https://www.geeksforgeeks.org/multithreading-c-2/
+    char *data = malloc(BUFFSIZE);
+    data = OpenAndReadFile(data);
+
+    pthread_t thread_id;
+
+    printf("The start time for thread memory sharing is: %ld\n", ReturnTimeNs());
+
+    pthread_create(&thread_id, NULL, threadFunction, data);
+    pthread_join(thread_id, NULL);
+}
+
+void* threadFunction(void* data) {
+    int checksum = sender(data, BUFFSIZE);
+    char* dataRead = malloc(BUFFSIZE);
+    strcpy(dataRead, data);
+    int checksumDifference = receiver(dataRead, BUFFSIZE, checksum);
+    printf("The checksum difference for thread memory sharing is: %d\n", checksumDifference);
+    if (checksumDifference != 0) {
+        printf("The end time for thread memory sharing is: -1\n");
+    }
+    else {
+        printf("The end time for thread memory sharing is: %ld\n", ReturnTimeNs());
     }
 }
