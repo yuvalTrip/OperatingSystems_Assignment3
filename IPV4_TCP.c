@@ -13,6 +13,12 @@
 //#define
 long Etime;
 long Stime;
+#define CHUNK_SIZE 1024
+#define SIZE_IN_BYTES 104857600
+#define FILENAME "testfile.txt"
+#define RECEIVER_PORT "2001"
+#define IPADDR "127.0.0.1"
+
 
 // The function was adapted from: https://www.educba.com/clock_gettime/
 long ReturnTimeNs() {
@@ -38,8 +44,8 @@ void send_file(FILE * fp, int sockfd){
     // Loop until the end of the file
     while (!feof(fp)) {
         // Read a chunk of data from the file
-        char buffer[1024];
-        size_t bytes_read = fread(buffer, 1, 1024, fp);
+        char buffer[CHUNK_SIZE];
+        size_t bytes_read = fread(buffer, 1, CHUNK_SIZE, fp);
 
         // Send the chunk of data to the server
         send(sockfd, buffer, bytes_read, 0);
@@ -129,11 +135,13 @@ int process2(char * portNum, FILE * fp)
     client_size = sizeof(client_addr);
     client_sock = accept(socket_desc, (struct sockaddr*)&client_addr, &client_size);
 
-    if (client_sock < 0){
+    if (client_sock < 0)
+    {
         printf("Can't accept\n");
         return -1;
     }
-    int fd = open("recivedFile.txt", O_WRONLY | O_APPEND | O_CREAT);
+
+    int fd = open(FILENAME, O_WRONLY | O_APPEND | O_CREAT);
 
     //we use an infinite loop to always read from the client until we can't
     for (int i = 0; i < 102400; i++) {
@@ -173,7 +181,7 @@ int process2(char * portNum, FILE * fp)
 int main(int argc, char * argv[])
 {
     FILE * fp;
-    fp = fopen("file.txt", "r");
+    fp = fopen(FILENAME, "r");
     if (fp == NULL) {
         perror("[-]Error in reading file.");
         exit(1);
@@ -183,11 +191,11 @@ int main(int argc, char * argv[])
 
     if(argc == 3)
     {
-        process1(argv[1], argv[2], fp);
+        process1(RECEIVER_PORT, argv[2], fp);
     }
     if(argc == 2)
     {
-        ch = process2(argv[1], fp);
+        ch = process2(RECEIVER_PORT, fp);
     }
 //    printf("sahgdasg%s\n", EndTime);
     //check if the 2 checksums are the same and print according to the orders
