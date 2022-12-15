@@ -7,12 +7,12 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <time.h>
-#include <math.h>
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <errno.h>
 #include <pthread.h>
+#include <sys/mman.h>
 
 
 #define SIZE_IN_BYTES 104857600
@@ -28,6 +28,67 @@
 
 long Endtime;
 long Starttime;
+int getCheckSum(char * file)
+{
+    int ChSu, sum = 0;
+    for (int i = 0; i < strlen(file); i++)
+        sum += file[i];
+    ChSu=~sum;    //1's complement of sum
+    return ChSu;
+}
+
+void send_file(FILE * fp, int sockfd){
+    // Loop until the end of the file
+    while (!feof(fp)) {
+        // Read a chunk of data from the file
+        char buffer[1024];
+        size_t bytes_read = fread(buffer, 1, 1024, fp);
+
+        // Send the chunk of data to the server
+        send(sockfd, buffer, bytes_read, 0);
+    }
+    // Close the file
+    fclose(fp);
+}
+
+long ReturnTimeNs() {
+    struct timespec currTime;
+
+    if (clock_gettime(CLOCK_REALTIME, &currTime) == -1) {
+        perror("clock gettime");
+        return EXIT_FAILURE;
+    }
+    return currTime.tv_nsec;
+}
+
+char *OpenAndReadFile(char *buf) {
+    int scrFile = 0;
+    // let us open the input file
+    scrFile = open("file.txt", O_RDONLY);
+    if (scrFile > 0) { // there are things to read from the input
+        int succe = read(scrFile, buf, SIZE_IN_BYTES);
+        close(scrFile);
+    }
+    return buf;
+}
+//https://www.sanfoundry.com/c-program-implement-checksum-method/
+int sender(char *recievedData, int numOfChar) {
+    int checksum, sum = 0, i;
+    for (i = 0; i < numOfChar; i++)
+        sum += recievedData[i];
+    checksum = ~sum;    //1's complement of sum
+    return checksum;
+}
+
+int receiver(char *recievedData, int numOfChar, int SenderChecksum) {
+    int checksum, sum = 0, i;
+    for (i = 0; i < numOfChar; i++)
+        sum += recievedData[i];
+    sum = sum + SenderChecksum;
+    checksum = ~sum;    //1's complement of sum
+    return checksum;
+}
+
 
 // The code for Stream UDS was adapted from https://www.ibm.com/docs/en/ztpf/1.1.0.15?topic=considerations-unix-domain-sockets
 void UDS_Stream_Sender();
@@ -322,13 +383,13 @@ void UDS_Stream_Receiver() {
             free(tempBuff);
         }
     }
-    checksum = sender(data, SIZE_IN_BYTES);
+    checksum = getCheckSum(data);//sender(data, SIZE_IN_BYTES);
     //Take time after receive
     long endTime = ReturnTimeNs();
 
-    int checksumReceived = receiver(buf, SIZE_IN_BYTES, checksum);
+    int checksumReceived = getCheckSum(buf);//receiver(buf, SIZE_IN_BYTES, checksum);
 
-    if (checksumReceived != 0) {
+    if (checksumReceived != checksum) {
         endTime = -1;
     }
     printf("End time of UDS-Stream: %ld\n", endTime);
@@ -352,7 +413,7 @@ void UDS_Dgram_Sender() {
     //Take time before send
     long startTime = ReturnTimeNs();
     printf("Start time of UDS-Stream: %ld\n", startTime);
-    int checksum = sender(data, SIZE_IN_BYTES);
+    int checksum = getCheckSum(data);//sender(data, SIZE_IN_BYTES);
 
     memset(&remote, 0, sizeof(struct sockaddr_un));
 
@@ -456,13 +517,13 @@ void UDS_Dgram_Receiver() {
             strcat(data, buf);
         }
     }
-    int checksum = sender(data, SIZE_IN_BYTES);
+    int checksum = getCheckSum(data);//sender(data, SIZE_IN_BYTES);
     //Take time after receive
     long endTime = ReturnTimeNs();
 
-    int checksumReceived = receiver(trueData, SIZE_IN_BYTES, checksum);
+    int checksumReceived = getCheckSum(trueData);//receiver(trueData, SIZE_IN_BYTES, checksum);
 
-    if (checksumReceived != 0) {
+    if (checksumReceived != checksum) {
         endTime = -1;
     }
     printf("End time of UDS-Datagram: %ld\n", endTime);
@@ -573,327 +634,295 @@ void* threadFunction(void* data) {
     else {
         printf("The end time for thread memory sharing is: %ld\n", ReturnTimeNs());
     }
+}
 
-    long ReturnTimeNs() {
-        struct timespec currTime;
-
-        if (clock_gettime(CLOCK_REALTIME, &currTime) == -1) {
-            perror("clock gettime");
-            return EXIT_FAILURE;
-        }
-        return currTime.tv_nsec;
+int process_senderTCP()
+{
+    FILE * fp;
+    fp = fopen(FILENAME, "r");
+    if (fp == NULL) {
+        perror("[-]Error in reading file.");
+        exit(1);
     }
 
-    int getCheckSum(char * file)
+    int port = RECEIVER_PORT;//convert the string of port from user to int
+    int socket_desc;
+    struct sockaddr_in server_addr;
+
+    // Create socket:
+    socket_desc = socket(AF_INET, SOCK_STREAM, 0);
+
+    if(socket_desc < 0){
+        printf("Unable to create socket\n");
+        return -1;
+    }
+
+    printf("Socket created successfully\n");
+    // Set port and IP the same as server-side:
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(port);
+    server_addr.sin_addr.s_addr = inet_addr(IPADDR_TCP);
+
+    // Send connection request to server:
+    if(connect(socket_desc, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0){
+        printf("Unable to connect\n");
+        return -1;
+    }
+    printf("Connected with server successfully\n");
+
+
+    Starttime = ReturnTimeNs();//getTime();
+    //we run in an infinite loop to always read from stdin(user)
+    send_file(fp, socket_desc);
+    printf("\n");
+
+    close(socket_desc);
+}
+
+int process_recieverTCP()
+{
+    int port = RECEIVER_PORT;//convert the string of port from user to int
+    int socket_desc, client_sock, client_size;
+    struct sockaddr_in server_addr, client_addr;
+    char * client_message;
+
+    client_message = malloc(SIZE_IN_BYTES);
+
+    // Create socket:
+    socket_desc = socket(AF_INET, SOCK_STREAM, 0);
+
+    if(socket_desc < 0){
+        printf("Error while creating socket\n");
+        return -1;
+    }
+    printf("Socket created successfully\n");
+
+    // Set port and IP:
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(port);
+    server_addr.sin_addr.s_addr = inet_addr("0.0.0.0");
+
+    // Bind to the set port and IP:
+    if(bind(socket_desc, (struct sockaddr*)&server_addr, sizeof(server_addr))<0){
+        printf("Couldn't bind to the port\n");
+        return -1;
+    }
+    printf("Done with binding\n");
+
+    // Listen for clients:
+    if(listen(socket_desc, 1) < 0){
+        printf("Error while listening\n");
+        return -1;
+    }
+    printf("\nListening for incoming connections.....\n");
+
+    // Accept an incoming connection:
+    client_size = sizeof(client_addr);
+    client_sock = accept(socket_desc, (struct sockaddr*)&client_addr, &client_size);
+
+    if (client_sock < 0){
+        printf("Can't accept\n");
+        return -1;
+    }
+    int fd = open("recivedFile.txt", O_WRONLY | O_APPEND | O_CREAT);
+
+    //we use an infinite loop to always read from the client until we can't
+    for (int i = 0; i < 102400; i++) {
+        // Receive client's message:
+        if (recv(client_sock, client_message, sizeof(client_message), 0) < 0) {
+            printf("Couldn't receive\n");
+            return -1;
+        }
+
+        write(fd, client_message, SIZE_IN_BYTES);
+    }
+
+
+    Endtime = ReturnTimeNs();//getTime();
+
+    //get checksum for process1
+    int ch1;
+    FILE * fp;
+    fp = fopen(FILENAME, "r");
+    if (fp == NULL) {
+        perror("[-]Error in reading file.");
+        exit(1);
+    }
+    char * buff = malloc(SIZE_IN_BYTES);
+    fread(buff, 1, SIZE_IN_BYTES, fp);
+    ch1 = getCheckSum(buff);
+    free(buff);
+
+    //get checksum for process2
+    char * fileRecived = malloc(SIZE_IN_BYTES);
+    read(fd, fileRecived, SIZE_IN_BYTES);
+    int ch2 = getCheckSum(fileRecived);
+    free(fileRecived);
+    close(socket_desc);
+    if(ch1 == ch2)
     {
-        int ChSu, sum = 0;
-        for (int i = 0; i < strlen(file); i++)
-            sum += file[i];
-        ChSu=~sum;    //1's complement of sum
-        return ChSu;
+        printf("TCP/IPv4 Socket - Start: %ld\n", Starttime);
+        printf("TCP/IPv4 Socket - End: %ld\n", Endtime);
+    }
+    else
+        printf("the checksums are not identical, \n -1");
+}
+
+int process_senderUDP()
+{
+    // sender
+
+    // Open a UDP socket
+    int sock = socket(AF_INET6, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        perror("socket creation failed");
+        exit(EXIT_FAILURE);
     }
 
-    void send_file(FILE * fp, int sockfd){
-        // Loop until the end of the file
-        while (!feof(fp)) {
-            // Read a chunk of data from the file
-            char buffer[1024];
-            size_t bytes_read = fread(buffer, 1, 1024, fp);
-
-            // Send the chunk of data to the server
-            send(sockfd, buffer, bytes_read, 0);
-        }
-        // Close the file
-        fclose(fp);
-    }
-
-    int process1TCP()
-    {
-        FILE * fp;
-        fp = fopen(FILENAME, "r");
-        if (fp == NULL) {
-            perror("[-]Error in reading file.");
-            exit(1);
-        }
-
-        int port = RECEIVER_PORT;//convert the string of port from user to int
-        int socket_desc;
-        struct sockaddr_in server_addr;
-
-        // Create socket:
-        socket_desc = socket(AF_INET, SOCK_STREAM, 0);
-
-        if(socket_desc < 0){
-            printf("Unable to create socket\n");
-            return -1;
-        }
-
-        printf("Socket created successfully\n");
-        // Set port and IP the same as server-side:
-        server_addr.sin_family = AF_INET;
-        server_addr.sin_port = htons(port);
-        server_addr.sin_addr.s_addr = inet_addr(IPADDR_TCP);
-
-        // Send connection request to server:
-        if(connect(socket_desc, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0){
-            printf("Unable to connect\n");
-            return -1;
-        }
-        printf("Connected with server successfully\n");
-
-
-        Starttime = ReturnTimeNs();//getTime();
-        //we run in an infinite loop to always read from stdin(user)
-        send_file(fp, socket_desc);
-        printf("\n");
-
-        close(socket_desc);
-    }
-
-    int process2TCP()
-    {
-        int port = RECEIVER_PORT;//convert the string of port from user to int
-        int socket_desc, client_sock, client_size;
-        struct sockaddr_in server_addr, client_addr;
-        char * client_message;
-
-        client_message = malloc(SIZE_IN_BYTES);
-
-        // Create socket:
-        socket_desc = socket(AF_INET, SOCK_STREAM, 0);
-
-        if(socket_desc < 0){
-            printf("Error while creating socket\n");
-            return -1;
-        }
-        printf("Socket created successfully\n");
-
-        // Set port and IP:
-        server_addr.sin_family = AF_INET;
-        server_addr.sin_port = htons(port);
-        server_addr.sin_addr.s_addr = inet_addr("0.0.0.0");
-
-        // Bind to the set port and IP:
-        if(bind(socket_desc, (struct sockaddr*)&server_addr, sizeof(server_addr))<0){
-            printf("Couldn't bind to the port\n");
-            return -1;
-        }
-        printf("Done with binding\n");
-
-        // Listen for clients:
-        if(listen(socket_desc, 1) < 0){
-            printf("Error while listening\n");
-            return -1;
-        }
-        printf("\nListening for incoming connections.....\n");
-
-        // Accept an incoming connection:
-        client_size = sizeof(client_addr);
-        client_sock = accept(socket_desc, (struct sockaddr*)&client_addr, &client_size);
-
-        if (client_sock < 0){
-            printf("Can't accept\n");
-            return -1;
-        }
-        int fd = open("recivedFile.txt", O_WRONLY | O_APPEND | O_CREAT);
-
-        //we use an infinite loop to always read from the client until we can't
-        for (int i = 0; i < 102400; i++) {
-            // Receive client's message:
-            if (recv(client_sock, client_message, sizeof(client_message), 0) < 0) {
-                printf("Couldn't receive\n");
-                return -1;
-            }
-
-            write(fd, client_message, SIZE_IN_BYTES);
-        }
-
-
-        Endtime = ReturnTimeNs();//getTime();
-
-        //get checksum for process1
-        int ch1;
-        FILE * fp;
-        fp = fopen(FILENAME, "r");
-        if (fp == NULL) {
-            perror("[-]Error in reading file.");
-            exit(1);
-        }
-        char * buff = malloc(SIZE_IN_BYTES);
-        fread(buff, 1, SIZE_IN_BYTES, fp);
-        ch1 = getCheckSum(buff);
-        free(buff);
-
-        //get checksum for process2
-        char * fileRecived = malloc(SIZE_IN_BYTES);
-        read(fd, fileRecived, SIZE_IN_BYTES);
-        int ch2 = getCheckSum(fileRecived);
-        free(fileRecived);
-        close(socket_desc);
-        if(ch1 == ch2)
-        {
-            printf("TCP/IPv4 Socket - Start: %ld\n", Starttime);
-            printf("TCP/IPv4 Socket - End: %ld\n", Endtime);
-        }
-        else
-            printf("the checksums are not identical, \n -1");
-    }
-
-    int process1UDP()
-    {
-        // sender
-
-        // Open a UDP socket
-        int sock = socket(AF_INET6, SOCK_DGRAM, 0);
-        if (sock < 0) {
-            perror("socket creation failed");
-            exit(EXIT_FAILURE);
-        }
-
-        // Set up the receiver's address
-        struct sockaddr_in6 receiver_addr;
+    // Set up the receiver's address
+    struct sockaddr_in6 receiver_addr;
 //    memset(&receiver_addr, 0, sizeof(receiver_addr));
-        receiver_addr.sin6_family = AF_INET6;
-        receiver_addr.sin6_port = htons(RECEIVER_PORT);
-        inet_pton(AF_INET6, IPADDR_UDP, &receiver_addr.sin6_addr);
+    receiver_addr.sin6_family = AF_INET6;
+    receiver_addr.sin6_port = htons(RECEIVER_PORT);
+    inet_pton(AF_INET6, IPADDR_UDP, &receiver_addr.sin6_addr);
 
-        // Open the file to be sent
-        int fd = open(FILENAME, O_RDONLY);
-        if (fd < 0) {
-            perror("Couldn't open file\n");
-            exit(1);
-        }
-
-        // Read the file into a buffer
-        char *buffer = malloc(CHUNK_SIZE);
-        if (!buffer) {
-            perror("Couldn't allocate memmory\n");
-            exit(1);
-        }
-
-        Starttime = ReturnTimeNs();//getTime();
-        ssize_t bytes_read;
-        ssize_t bytesTot = 0;
-        // Send the file in chunks
-        while (1) {
-
-            // Read a chunk from the file
-            bytes_read = read(fd, buffer, CHUNK_SIZE);
-
-            // If we reached the end of the file, break out of the loop
-            if (bytes_read == 0) {
-                strcpy(buffer, "by");
-                // Send the chunk to the receiver
-                sendto(sock, buffer, strlen(buffer), 0,
-                       (struct sockaddr*)&receiver_addr, sizeof(receiver_addr));
-                break;
-            }
-
-            // Send the chunk to the receiver
-            ssize_t bytes_sent = sendto(sock, buffer, CHUNK_SIZE, 0,
-                                        (struct sockaddr*)&receiver_addr, sizeof(receiver_addr));
-
-            if (bytes_sent < 0) {
-                perror("Unable to send\n");
-                exit(1);
-            }
-            bytesTot += bytes_sent;
-        }
-        //printf("bytes: %d\n", (int)bytesTot);
-        printf("file sent.\n");
-
-        // Close the socket and file
-        close(sock);
-        close(fd);
+    // Open the file to be sent
+    int fd = open(FILENAME, O_RDONLY);
+    if (fd < 0) {
+        perror("Couldn't open file\n");
+        exit(1);
     }
 
-    int process2UDP()
-    {
-        // receiver
+    // Read the file into a buffer
+    char *buffer = malloc(CHUNK_SIZE);
+    if (!buffer) {
+        perror("Couldn't allocate memmory\n");
+        exit(1);
+    }
 
-        // Open a UDP socket
-        int sock = socket(AF_INET6, SOCK_DGRAM, 0);
-        if (sock < 0) {
-            printf("Error while creating socket\n");
-            return -1;
+    Starttime = ReturnTimeNs();//getTime();
+    ssize_t bytes_read;
+    ssize_t bytesTot = 0;
+    // Send the file in chunks
+    while (1) {
+
+        // Read a chunk from the file
+        bytes_read = read(fd, buffer, CHUNK_SIZE);
+
+        // If we reached the end of the file, break out of the loop
+        if (bytes_read == 0) {
+            strcpy(buffer, "by");
+            // Send the chunk to the receiver
+            sendto(sock, buffer, strlen(buffer), 0,
+                   (struct sockaddr*)&receiver_addr, sizeof(receiver_addr));
+            break;
         }
-        printf("Socket created successfully\n");
+
+        // Send the chunk to the receiver
+        ssize_t bytes_sent = sendto(sock, buffer, CHUNK_SIZE, 0,
+                                    (struct sockaddr*)&receiver_addr, sizeof(receiver_addr));
+
+        if (bytes_sent < 0) {
+            perror("Unable to send\n");
+            exit(1);
+        }
+        bytesTot += bytes_sent;
+    }
+    //printf("bytes: %d\n", (int)bytesTot);
+    printf("file sent.\n");
+
+    // Close the socket and file
+    close(sock);
+    close(fd);
+}
+
+int process_recieverUDP()
+{
+    // receiver
+
+    // Open a UDP socket
+    int sock = socket(AF_INET6, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        printf("Error while creating socket\n");
+        return -1;
+    }
+    printf("Socket created successfully\n");
 
 
 // Bind the socket to the local port
-        struct sockaddr_in6 local_addr;
-        memset(&local_addr, 0, sizeof(local_addr));
-        local_addr.sin6_family = AF_INET6;
-        local_addr.sin6_port = htons(RECEIVER_PORT);
-        local_addr.sin6_addr = in6addr_any;
+    struct sockaddr_in6 local_addr;
+    memset(&local_addr, 0, sizeof(local_addr));
+    local_addr.sin6_family = AF_INET6;
+    local_addr.sin6_port = htons(RECEIVER_PORT);
+    local_addr.sin6_addr = in6addr_any;
 
-        if (bind(sock, (struct sockaddr*)&local_addr, sizeof(local_addr)) < 0) {
-            printf("Couldn't bind to the port\n");
-            return -1;
-        }
-        printf("Done with binding\n");
+    if (bind(sock, (struct sockaddr*)&local_addr, sizeof(local_addr)) < 0) {
+        printf("Couldn't bind to the port\n");
+        return -1;
+    }
+    printf("Done with binding\n");
 
 
 
-        char * fullMassage = malloc(SIZE_IN_BYTES);
-        ssize_t totbytes = 0;
-        // Receive the file in chunks
-        while (1) {
-            // Receive a chunk from the sender
-            char buffer[CHUNK_SIZE];
-            struct sockaddr_in6 sender_addr;
-            socklen_t addrlen = sizeof(sender_addr);
-            ssize_t bytes_received = recvfrom(sock, buffer, CHUNK_SIZE, 0,
-                                              (struct sockaddr*)&sender_addr, &addrlen);
+    char * fullMassage = malloc(SIZE_IN_BYTES);
+    ssize_t totbytes = 0;
+    // Receive the file in chunks
+    while (1) {
+        // Receive a chunk from the sender
+        char buffer[CHUNK_SIZE];
+        struct sockaddr_in6 sender_addr;
+        socklen_t addrlen = sizeof(sender_addr);
+        ssize_t bytes_received = recvfrom(sock, buffer, CHUNK_SIZE, 0,
+                                          (struct sockaddr*)&sender_addr, &addrlen);
 
-            if (bytes_received < 0) {
-                perror("recvfrom");
-                exit(1);
-            }
-
-            if (strcmp(buffer, "by") == 0) {
-                break;
-            }
-
-            totbytes += bytes_received;
-            // If we received 0 bytes, it means the sender has finished sending
-            // the file and we can break out of the loop
-            strcat(fullMassage, buffer);
-        }
-
-        //printf("bytes recived: %d\n", (int)totbytes);
-
-        printf("file recived\n");
-        //take time
-        Endtime = ReturnTimeNs();//getTime();
-
-        //get checksum for process1
-        //open the file to be received
-        int fd = open(FILENAME, O_RDONLY);
-        if (fd < 0) {
-            perror("Couldn't open file\n");
+        if (bytes_received < 0) {
+            perror("recvfrom");
             exit(1);
         }
 
-        char * buff = malloc(SIZE_IN_BYTES);
-        read(fd, buff, SIZE_IN_BYTES);
-        int ch1 = getCheckSum(buff);
-        free(buff);
+        if (strcmp(buffer, "by") == 0) {
+            break;
+        }
 
-        //get checksum for process2
-        int ch2 = getCheckSum(fullMassage);
-        free(fullMassage);
+        totbytes += bytes_received;
+        // If we received 0 bytes, it means the sender has finished sending
+        // the file and we can break out of the loop
+        strcat(fullMassage, buffer);
+    }
+
+    //printf("bytes recived: %d\n", (int)totbytes);
+
+    printf("file recived\n");
+    //take time
+    Endtime = ReturnTimeNs();//getTime();
+
+    //get checksum for process1
+    //open the file to be received
+    int fd = open(FILENAME, O_RDONLY);
+    if (fd < 0) {
+        perror("Couldn't open file\n");
+        exit(1);
+    }
+
+    char * buff = malloc(SIZE_IN_BYTES);
+    read(fd, buff, SIZE_IN_BYTES);
+    int ch1 = getCheckSum(buff);
+    free(buff);
+
+    //get checksum for process2
+    int ch2 = getCheckSum(fullMassage);
+    free(fullMassage);
 
 // Close the socket and file
-        close(sock);
-        if(ch1 == ch2)
-        {
-            //print time
-            printf("UDP/IPv6 Socket - Start: %ld\n", Starttime);
-            printf("UDP/IPv6 Socket - End: %ld\n", Endtime);
-        }
-        printf("the checksums are not identical, \n -1\n");
-        return 0;
+    close(sock);
+    if(ch1 == ch2)
+    {
+        //print time
+        printf("UDP/IPv6 Socket - Start: %ld\n", Starttime);
+        printf("UDP/IPv6 Socket - End: %ld\n", Endtime);
     }
+    printf("the checksums are not identical, \n -1\n");
+    return 0;
 }
+
 

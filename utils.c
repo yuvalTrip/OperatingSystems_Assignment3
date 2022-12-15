@@ -5,7 +5,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
-# include <time.h>
+#include <time.h>
 
 #define BUFFSIZE (1024*1024*100) // define file size in bytes (binary)
 
