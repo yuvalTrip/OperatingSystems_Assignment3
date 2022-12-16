@@ -17,8 +17,9 @@
 
 #define SIZE_IN_BYTES 104857600
 #define CHUNK_SIZE 1024
-#define FILENAME "file.txt"
-#define RECEIVER_PORT 2001
+#define FILENAME "test.txt"
+#define RECEIVER_PORT 20001
+#define RECEIVER_PORT2 20002
 #define IPADDR_TCP "127.0.0.1"
 #define IPADDR_UDP "::1"
 #define SERVER_PATH "tpf_unix_sock.server"
@@ -28,21 +29,52 @@
 
 long Endtime;
 long Starttime;
-int getCheckSum(char * file)
-{
+
+void UDS_Stream_Sender();
+
+void UDS_Stream_Receiver();
+
+void UDS_Dgram_Sender();
+
+void UDS_Dgram_Receiver();
+
+void mmapSenderAndReceiver();
+
+void pipeTransfer();
+
+void *threadFunction(void *data);
+
+void threadSharingMainFunction();
+
+void process_senderTCP();
+
+void process_recieverTCP();
+
+void process_senderUDP();
+
+void process_recieverUDP();
+
+int getCheckSum(char *file) {
     int ChSu, sum = 0;
     for (int i = 0; i < strlen(file); i++)
         sum += file[i];
-    ChSu=~sum;    //1's complement of sum
+    ChSu = ~sum;    //1's complement of sum
     return ChSu;
 }
 
-void send_file(FILE * fp, int sockfd){
+void send_file(FILE *fp, int sockfd) {
     // Loop until the end of the file
     while (!feof(fp)) {
         // Read a chunk of data from the file
         char buffer[1024];
         size_t bytes_read = fread(buffer, 1, 1024, fp);
+
+//        if (bytes_read == 0) {
+//            strcpy(buffer, "by");
+//            // Send the chunk to the receiver
+//            send(sockfd, buffer, bytes_read, 0);
+//            break;
+//        }
 
         // Send the chunk of data to the server
         send(sockfd, buffer, bytes_read, 0);
@@ -71,6 +103,7 @@ char *OpenAndReadFile(char *buf) {
     }
     return buf;
 }
+
 //https://www.sanfoundry.com/c-program-implement-checksum-method/
 int sender(char *recievedData, int numOfChar) {
     int checksum, sum = 0, i;
@@ -91,83 +124,41 @@ int receiver(char *recievedData, int numOfChar, int SenderChecksum) {
 
 
 // The code for Stream UDS was adapted from https://www.ibm.com/docs/en/ztpf/1.1.0.15?topic=considerations-unix-domain-sockets
-void UDS_Stream_Sender();
 
-void UDS_Stream_Receiver();
-
-void UDS_Dgram_Sender();
-
-void UDS_Dgram_Receiver();
-
-void mmapSenderAndReceiver();
-
-void pipeTransfer();
-
-void* threadFunction(void* data);
-
-void threadSharingMainFunction();
-
-int process_senderTCP();
-
-int process_recieverTCP();
-
-int process_senderUDP();
-
-int process_recieverUDP ();
-
-int main(int argc, char * argv[]) {
-    if(fork() == 0)
-    {
+int main(int argc, char *argv[]) {
+    if (fork() == 0) {
         process_senderTCP();
-    }
-    else
-    {
-        if(fork() == 0)
-        {
+    } else {
+        if (fork() == 0) {
             process_recieverTCP();
-        }
-        else
-        {
-            if(fork() == 0)
-            {
+        } else {
+            if (fork() == 0) {
                 process_senderUDP();
-            }
-            else
-            {
-                if(fork() == 0)
-                {
+            } else {
+                if (fork() == 0) {
                     process_recieverUDP();
-                }
-                else
-                {
+                } else {
                     if (fork() == 0) {
                         UDS_Stream_Sender();
-                    }
-                    else {
+                    } else {
                         if (fork() == 0) {
                             UDS_Stream_Receiver();
-                        }
-                        else {
+                        } else {
                             if (fork() == 0) {
                                 UDS_Dgram_Sender();
-                            }
-                            else {
+                            } else {
                                 if (fork() == 0) {
                                     UDS_Dgram_Receiver();
-                                }
-                                else {
+                                } else {
                                     if (fork() == 0) {
                                         mmapSenderAndReceiver();
-                                    }
-                                    else {
+                                    } else {
                                         if (fork() == 0) {
                                             pipeTransfer();
-                                        }
-                                        else {
+                                        } else {
                                             if (fork() == 0) {
                                                 threadSharingMainFunction();
-                                            }
-                                            else {
+                                            } else {
                                                 wait(NULL);
                                             }
                                             wait(NULL);
@@ -190,6 +181,7 @@ int main(int argc, char * argv[]) {
         }
         wait(NULL);
     }
+    wait(NULL);
 
     return 1;
 }
@@ -393,7 +385,6 @@ void UDS_Stream_Receiver() {
         endTime = -1;
     }
     printf("End time of UDS-Stream: %ld\n", endTime);
-    printf("The checksum difference is: %d\n", checksumReceived);
 
     /******************************/
     /* Close the socket and exit. */
@@ -412,7 +403,7 @@ void UDS_Dgram_Sender() {
 
     //Take time before send
     long startTime = ReturnTimeNs();
-    printf("Start time of UDS-Stream: %ld\n", startTime);
+    printf("Start time of UDS-Dgram: %ld\n", startTime);
     int checksum = getCheckSum(data);//sender(data, SIZE_IN_BYTES);
 
     memset(&remote, 0, sizeof(struct sockaddr_un));
@@ -444,14 +435,11 @@ void UDS_Dgram_Sender() {
     for (int i = 0; i < SIZE_IN_BYTES / 1024; i++) {
         char *tempSend = malloc(1024);
         strncpy(tempSend, startPointer, 1024);
-        rc = sendto(client_socket, tempSend, 1024, 0, (struct sockaddr *) &remote, sizeof(remote));
-        if (rc == -1) {
-            printf("SENDTO ERROR = %s\n", strerror(errno));
-            close(client_socket);
-            exit(1);
-        } else {
-            startPointer += 1024;
+        while(sendto(client_socket, tempSend, 1024, 0, (struct sockaddr *) &remote, sizeof(remote))== -1) {
+            continue;
         }
+        startPointer += 1024;
+
         free(tempSend);
     }
 
@@ -527,7 +515,6 @@ void UDS_Dgram_Receiver() {
         endTime = -1;
     }
     printf("End time of UDS-Datagram: %ld\n", endTime);
-    printf("The checksum difference for UDS-Datagram is: %d\n", checksumReceived);
 
     /*****************************/
     /* Close the socket and exit */
@@ -537,7 +524,7 @@ void UDS_Dgram_Receiver() {
 
 void mmapSenderAndReceiver() {
     // The code was adapted from https://www.youtube.com/watch?v=F3z-SIxu1Tw
-    int fd = open("mmapTest.txt", O_RDWR);
+    int fd = open(FILENAME, O_RDWR);
     char *data = malloc(SIZE_IN_BYTES);
     data = OpenAndReadFile(data);
 
@@ -560,7 +547,6 @@ void mmapSenderAndReceiver() {
         } else {
             printf("mmap after read time: %ld\n", ReturnTimeNs());
         }
-        printf("Checksum difference for mmap is: %d\n", checksumComparison);
 
     } else {
         wait(NULL);
@@ -598,9 +584,9 @@ void pipeTransfer() {
         } else {
             printf("pipe transfer after read time: %ld\n", ReturnTimeNs());
         }
-        printf("Checksum difference for pipe transfer is: %d\n", checksumComparison);
 
     } else { //Parent process
+        printf("pipe transfer before read time: %ld\n", ReturnTimeNs());
         for (int i = 0; i < SIZE_IN_BYTES / 1024; i++) {
             write(pipefds[1], data, 1024);
             data += 1024;
@@ -622,56 +608,51 @@ void threadSharingMainFunction() {
     pthread_join(thread_id, NULL);
 }
 
-void* threadFunction(void* data) {
+void *threadFunction(void *data) {
     int checksum = sender(data, SIZE_IN_BYTES);
-    char* dataRead = malloc(SIZE_IN_BYTES);
+    char *dataRead = malloc(SIZE_IN_BYTES);
     strcpy(dataRead, data);
     int checksumDifference = receiver(dataRead, SIZE_IN_BYTES, checksum);
-    printf("The checksum difference for thread memory sharing is: %d\n", checksumDifference);
     if (checksumDifference != 0) {
         printf("The end time for thread memory sharing is: -1\n");
-    }
-    else {
+    } else {
         printf("The end time for thread memory sharing is: %ld\n", ReturnTimeNs());
     }
+    return NULL;
 }
 
-int process_senderTCP()
-{
-    FILE * fp;
+void process_senderTCP() {
+    FILE *fp;
     fp = fopen(FILENAME, "r");
     if (fp == NULL) {
         perror("[-]Error in reading file.");
         exit(1);
     }
 
-    int port = RECEIVER_PORT;//convert the string of port from user to int
+    int port = RECEIVER_PORT2;//convert the string of port from user to int
     int socket_desc;
     struct sockaddr_in server_addr;
 
     // Create socket:
     socket_desc = socket(AF_INET, SOCK_STREAM, 0);
 
-    if(socket_desc < 0){
+    if (socket_desc < 0) {
         printf("Unable to create socket\n");
-        return -1;
     }
 
-    printf("Socket created successfully\n");
     // Set port and IP the same as server-side:
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(port);
     server_addr.sin_addr.s_addr = inet_addr(IPADDR_TCP);
 
     // Send connection request to server:
-    if(connect(socket_desc, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0){
-        printf("Unable to connect\n");
-        return -1;
+    while (connect(socket_desc, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
+        continue;
     }
-    printf("Connected with server successfully\n");
 
 
     Starttime = ReturnTimeNs();//getTime();
+    printf("TCP/IPv4 Socket - Start: %ld\n", Starttime);
     //we run in an infinite loop to always read from stdin(user)
     send_file(fp, socket_desc);
     printf("\n");
@@ -679,23 +660,20 @@ int process_senderTCP()
     close(socket_desc);
 }
 
-int process_recieverTCP()
-{
-    int port = RECEIVER_PORT;//convert the string of port from user to int
+void process_recieverTCP() {
+    int port = RECEIVER_PORT2;//convert the string of port from user to int
     int socket_desc, client_sock, client_size;
     struct sockaddr_in server_addr, client_addr;
-    char * client_message;
+    char *client_message;
 
     client_message = malloc(SIZE_IN_BYTES);
 
     // Create socket:
     socket_desc = socket(AF_INET, SOCK_STREAM, 0);
 
-    if(socket_desc < 0){
+    if (socket_desc < 0) {
         printf("Error while creating socket\n");
-        return -1;
     }
-    printf("Socket created successfully\n");
 
     // Set port and IP:
     server_addr.sin_family = AF_INET;
@@ -703,73 +681,70 @@ int process_recieverTCP()
     server_addr.sin_addr.s_addr = inet_addr("0.0.0.0");
 
     // Bind to the set port and IP:
-    if(bind(socket_desc, (struct sockaddr*)&server_addr, sizeof(server_addr))<0){
+    if (bind(socket_desc, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
         printf("Couldn't bind to the port\n");
-        return -1;
     }
-    printf("Done with binding\n");
 
     // Listen for clients:
-    if(listen(socket_desc, 1) < 0){
+    if (listen(socket_desc, 1) < 0) {
         printf("Error while listening\n");
-        return -1;
     }
-    printf("\nListening for incoming connections.....\n");
 
     // Accept an incoming connection:
     client_size = sizeof(client_addr);
-    client_sock = accept(socket_desc, (struct sockaddr*)&client_addr, &client_size);
+    client_sock = accept(socket_desc, (struct sockaddr *) &client_addr, &client_size);
 
-    if (client_sock < 0){
+    if (client_sock < 0) {
         printf("Can't accept\n");
-        return -1;
     }
-    int fd = open("recivedFile.txt", O_WRONLY | O_APPEND | O_CREAT);
 
-    //we use an infinite loop to always read from the client until we can't
-    for (int i = 0; i < 102400; i++) {
-        // Receive client's message:
+    char *fullMassage = malloc(SIZE_IN_BYTES);
+    for (int i = 0; i < SIZE_IN_BYTES/1024; i++) {
+        // Receive a chunk from the sender
+//        char buffer[CHUNK_SIZE];
+        struct sockaddr_in6 sender_addr;
+        socklen_t addrlen = sizeof(sender_addr);
         if (recv(client_sock, client_message, sizeof(client_message), 0) < 0) {
             printf("Couldn't receive\n");
-            return -1;
+        }
+        else{
+//            printf("TCP data receiver");
         }
 
-        write(fd, client_message, SIZE_IN_BYTES);
+//        if (strcmp(buffer, "by") == 0) {
+//            break;
+//        }
+
+        // If we received 0 bytes, it means the sender has finished sending
+        // the file and we can break out of the loop
+        strcat(fullMassage, client_message);
     }
-
-
-    Endtime = ReturnTimeNs();//getTime();
-
+    Endtime = ReturnTimeNs();//get time
     //get checksum for process1
     int ch1;
-    FILE * fp;
+    FILE *fp;
     fp = fopen(FILENAME, "r");
     if (fp == NULL) {
         perror("[-]Error in reading file.");
         exit(1);
     }
-    char * buff = malloc(SIZE_IN_BYTES);
+    char *buff = malloc(SIZE_IN_BYTES);
     fread(buff, 1, SIZE_IN_BYTES, fp);
-    ch1 = getCheckSum(buff);
-    free(buff);
+    ch1 = sender(buff,SIZE_IN_BYTES);
+    //free(buff);
 
     //get checksum for process2
-    char * fileRecived = malloc(SIZE_IN_BYTES);
-    read(fd, fileRecived, SIZE_IN_BYTES);
-    int ch2 = getCheckSum(fileRecived);
-    free(fileRecived);
+    int ch2 = sender(fullMassage,SIZE_IN_BYTES);
     close(socket_desc);
-    if(ch1 == ch2)
-    {
-        printf("TCP/IPv4 Socket - Start: %ld\n", Starttime);
+    if (ch1 == ch2) {
         printf("TCP/IPv4 Socket - End: %ld\n", Endtime);
+    } else {
+        printf("TCP-the checksums are not identical, -1\n");
     }
-    else
-        printf("the checksums are not identical, \n -1");
+    free(fullMassage);
 }
 
-int process_senderUDP()
-{
+void process_senderUDP() {
     // sender
 
     // Open a UDP socket
@@ -801,10 +776,11 @@ int process_senderUDP()
     }
 
     Starttime = ReturnTimeNs();//getTime();
+    printf("UDP/IPv6 Socket - Start: %ld\n", Starttime);
     ssize_t bytes_read;
     ssize_t bytesTot = 0;
     // Send the file in chunks
-    while (1) {
+    for (int i =0; i<SIZE_IN_BYTES/1024 +1;i++){
 
         // Read a chunk from the file
         bytes_read = read(fd, buffer, CHUNK_SIZE);
@@ -814,39 +790,36 @@ int process_senderUDP()
             strcpy(buffer, "by");
             // Send the chunk to the receiver
             sendto(sock, buffer, strlen(buffer), 0,
-                   (struct sockaddr*)&receiver_addr, sizeof(receiver_addr));
+                   (struct sockaddr *) &receiver_addr, sizeof(receiver_addr));
             break;
         }
 
         // Send the chunk to the receiver
         ssize_t bytes_sent = sendto(sock, buffer, CHUNK_SIZE, 0,
-                                    (struct sockaddr*)&receiver_addr, sizeof(receiver_addr));
+                                    (struct sockaddr *) &receiver_addr, sizeof(receiver_addr));
 
         if (bytes_sent < 0) {
             perror("Unable to send\n");
             exit(1);
         }
-        bytesTot += bytes_sent;
+//        bytesTot += bytes_sent;
     }
     //printf("bytes: %d\n", (int)bytesTot);
-    printf("file sent.\n");
 
     // Close the socket and file
     close(sock);
     close(fd);
 }
 
-int process_recieverUDP()
-{
+void process_recieverUDP() {
     // receiver
 
     // Open a UDP socket
     int sock = socket(AF_INET6, SOCK_DGRAM, 0);
     if (sock < 0) {
         printf("Error while creating socket\n");
-        return -1;
     }
-    printf("Socket created successfully\n");
+    //printf("Socket created successfully\n");
 
 
 // Bind the socket to the local port
@@ -856,24 +829,21 @@ int process_recieverUDP()
     local_addr.sin6_port = htons(RECEIVER_PORT);
     local_addr.sin6_addr = in6addr_any;
 
-    if (bind(sock, (struct sockaddr*)&local_addr, sizeof(local_addr)) < 0) {
+    if (bind(sock, (struct sockaddr *) &local_addr, sizeof(local_addr)) < 0) {
         printf("Couldn't bind to the port\n");
-        return -1;
     }
-    printf("Done with binding\n");
 
 
-
-    char * fullMassage = malloc(SIZE_IN_BYTES);
+    char *fullMassage = malloc(SIZE_IN_BYTES);
     ssize_t totbytes = 0;
     // Receive the file in chunks
-    while (1) {
+    for (int i = 0; i < SIZE_IN_BYTES/1024 +1; i++) {
         // Receive a chunk from the sender
         char buffer[CHUNK_SIZE];
         struct sockaddr_in6 sender_addr;
         socklen_t addrlen = sizeof(sender_addr);
         ssize_t bytes_received = recvfrom(sock, buffer, CHUNK_SIZE, 0,
-                                          (struct sockaddr*)&sender_addr, &addrlen);
+                                          (struct sockaddr *) &sender_addr, &addrlen);
 
         if (bytes_received < 0) {
             perror("recvfrom");
@@ -884,7 +854,7 @@ int process_recieverUDP()
             break;
         }
 
-        totbytes += bytes_received;
+//        totbytes += bytes_received;
         // If we received 0 bytes, it means the sender has finished sending
         // the file and we can break out of the loop
         strcat(fullMassage, buffer);
@@ -892,10 +862,9 @@ int process_recieverUDP()
 
     //printf("bytes recived: %d\n", (int)totbytes);
 
-    printf("file recived\n");
+    //printf("file recived\n");
     //take time
     Endtime = ReturnTimeNs();//getTime();
-
     //get checksum for process1
     //open the file to be received
     int fd = open(FILENAME, O_RDONLY);
@@ -904,25 +873,24 @@ int process_recieverUDP()
         exit(1);
     }
 
-    char * buff = malloc(SIZE_IN_BYTES);
+    char *buff = malloc(SIZE_IN_BYTES);
     read(fd, buff, SIZE_IN_BYTES);
-    int ch1 = getCheckSum(buff);
+    int ch1 = sender(buff,SIZE_IN_BYTES);
     free(buff);
 
     //get checksum for process2
-    int ch2 = getCheckSum(fullMassage);
-    free(fullMassage);
+    //int ch2 = getCheckSum(fullMassage);
+    int ch2 =sender(fullMassage,SIZE_IN_BYTES);
+    //free(fullMassage);
+    //printf("//////////////////////////END:%d ",Endtime);
 
 // Close the socket and file
     close(sock);
-    if(ch1 == ch2)
-    {
+    if (ch1 == ch2) {
         //print time
-        printf("UDP/IPv6 Socket - Start: %ld\n", Starttime);
         printf("UDP/IPv6 Socket - End: %ld\n", Endtime);
     }
-    printf("the checksums are not identical, \n -1\n");
-    return 0;
+    else {
+        printf("UDP-the checksums are not identical, -1\n");
+    }
 }
-
-
